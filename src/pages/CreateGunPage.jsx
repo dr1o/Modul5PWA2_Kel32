@@ -28,19 +28,17 @@ import ConfirmModal from '../components/modals/ConfirmModal'
 export default function CreateGunPage({ onBack, onSuccess }) {
   // Step state: 'upload' (upload or choose image) or 'form' (enter details)
   const [currentStep, setCurrentStep] = useState('upload')
-
   const [formData, setFormData] = useState({
     name: '',
     type: 'Pistol',
     caliber: '9mm',
     category: 'makanan', // API validation expects 'makanan' or 'minuman'
-    difficulty: 'mudah',  // 'mudah' (Standard) | 'sedang' (Service) | 'sulit' (Match)
+    difficulty: 'mudah', // 'mudah' (Standard) | 'sedang' (Service) | 'sulit' (Match)
     price: 599,
     description: '',
     servings: 1,
     is_featured: false,
   })
-
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [uploadedImageUrl, setUploadedImageUrl] = useState('')
@@ -65,34 +63,37 @@ export default function CreateGunPage({ onBack, onSuccess }) {
 
   // Draft management
   const [showDraftModal, setShowDraftModal] = useState(() => hasDraft('create'))
-  const [draftTimestamp, setDraftTimestamp] = useState(() => getDraftTimestamp('create'))
+  const [draftTimestamp, setDraftTimestamp] = useState(() =>
+    getDraftTimestamp('create'),
+  )
 
-  const handleSaveDraft = useCallback((notify = true) => {
-    const draftData = {
-      formData,
-      specs,
-      steps,
-      uploadedImageUrl,
-    }
-    const saved = saveDraft(draftData, 'create')
-    if (saved) {
-      const ts = getDraftTimestamp('create')
-      setDraftTimestamp(ts)
-      if (notify) {
-        setSuccessMsg(`Draft saved (${formatDraftTime(ts)})`)
-        setTimeout(() => setSuccessMsg(''), 3000)
+  const handleSaveDraft = useCallback(
+    (notify = true) => {
+      const draftData = {
+        formData,
+        specs,
+        steps,
+        uploadedImageUrl,
       }
-    }
-  }, [formData, specs, steps, uploadedImageUrl])
+      const saved = saveDraft(draftData, 'create')
+      if (saved) {
+        const ts = getDraftTimestamp('create')
+        setDraftTimestamp(ts)
+        if (notify) {
+          setSuccessMsg(`Draft saved (${formatDraftTime(ts)})`)
+          setTimeout(() => setSuccessMsg(''), 3000)
+        }
+      }
+    },
+    [formData, specs, steps, uploadedImageUrl],
+  )
 
   // Auto-save draft every 30 seconds while in form step
   useEffect(() => {
     if (currentStep !== 'form') return
-
     const interval = setInterval(() => {
       handleSaveDraft(false)
     }, 30000)
-
     return () => clearInterval(interval)
   }, [handleSaveDraft, currentStep])
 
@@ -123,18 +124,15 @@ export default function CreateGunPage({ onBack, onSuccess }) {
   const handleImageChange = (e) => {
     const file = e.target.files[0]
     if (!file) return
-
     if (file.size > 5 * 1024 * 1024) {
       setError('File size exceeds 5MB limit.')
       return
     }
-
     const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
     if (!allowed.includes(file.type)) {
       setError('Allowed formats: .jpg, .jpeg, .png, .webp')
       return
     }
-
     setImageFile(file)
     setImagePreview(URL.createObjectURL(file))
     setError('')
@@ -152,7 +150,6 @@ export default function CreateGunPage({ onBack, onSuccess }) {
   // Upload image to server
   const handleUploadImage = async () => {
     if (!imageFile) {
-      // If user already previewed a preset or entered a url, advance to form
       if (uploadedImageUrl) {
         setCurrentStep('form')
         return
@@ -160,7 +157,6 @@ export default function CreateGunPage({ onBack, onSuccess }) {
       setError('Please select an image file first.')
       return
     }
-
     try {
       setUploading(true)
       setError('')
@@ -173,7 +169,6 @@ export default function CreateGunPage({ onBack, onSuccess }) {
       }
     } catch (err) {
       console.warn('Upload API failed, falling back to local preview:', err)
-      // Allow fallback to image preview so the user can continue even if MinIO bucket is unreachable
       setUploadedImageUrl(imagePreview || '/guns/pistol.svg')
       setCurrentStep('form')
     } finally {
@@ -241,29 +236,29 @@ export default function CreateGunPage({ onBack, onSuccess }) {
         name: s.name.trim(),
         quantity: s.quantity.trim() || 'Standard',
       }))
-
     if (cleanSpecs.length === 0) {
       setError('Please provide at least one specification.')
       return
     }
 
-    const cleanSteps = steps
-      .filter((s) => s.trim())
-      .map((s) => s.trim())
-
+    const cleanSteps = steps.filter((s) => s.trim()).map((s) => s.trim())
     if (cleanSteps.length === 0) {
       setError('Please provide at least one maintenance / assembly step.')
       return
     }
 
-    // Prepare payload compliant with backend /api/v1/recipes schema
     const payload = {
       name: formData.name.trim(),
+      type: formData.type,
+      caliber: formData.caliber.trim() || '9mm',
+      price: Number(formData.price) || 500,
       category: formData.category || 'makanan',
-      description: formData.description.trim() || `${formData.type} caliber ${formData.caliber}.`,
+      description:
+        formData.description.trim() ||
+        `${formData.type} caliber ${formData.caliber}.`,
       image_url: uploadedImageUrl || '/guns/pistol.svg',
       prep_time: 15,
-      cook_time: Number(formData.price) || 500, // Price stored in cook_time
+      cook_time: Number(formData.price) || 500,
       servings: Number(formData.servings) || 1,
       difficulty: formData.difficulty || 'mudah',
       is_featured: Boolean(formData.is_featured),
@@ -315,8 +310,8 @@ export default function CreateGunPage({ onBack, onSuccess }) {
       <div className="form-title-group">
         <h1 className="display">Register New Hardware</h1>
         <p className="lede">
-          Add a firearm or accessory to the catalog. Data will be synchronized with the
-          university RESTful backend.
+          Add a firearm or accessory to the catalog. Data will be synchronized
+          with your personal RESTful backend.
         </p>
       </div>
 
@@ -334,11 +329,19 @@ export default function CreateGunPage({ onBack, onSuccess }) {
 
       {/* Step Indicators */}
       <div className="form-steps-nav">
-        <div className={`step-badge ${currentStep === 'upload' ? 'step-badge--active' : 'step-badge--done'}`}>
+        <div
+          className={`step-badge ${
+            currentStep === 'upload' ? 'step-badge--active' : 'step-badge--done'
+          }`}
+        >
           1. Imagery
         </div>
         <div className="step-badge-connector" />
-        <div className={`step-badge ${currentStep === 'form' ? 'step-badge--active' : ''}`}>
+        <div
+          className={`step-badge ${
+            currentStep === 'form' ? 'step-badge--active' : ''
+          }`}
+        >
           2. Specifications &amp; Details
         </div>
       </div>
@@ -348,9 +351,9 @@ export default function CreateGunPage({ onBack, onSuccess }) {
         <div className="card-box">
           <h2 className="card-box-title">Weapon Imagery</h2>
           <p className="card-box-desc">
-            Upload an authentic photograph or blueprint (max 5MB), or select an armory preset.
+            Upload an authentic photograph or blueprint (max 5MB), or select an
+            armory preset.
           </p>
-
           {!imagePreview ? (
             <div className="upload-dropzone">
               <input
@@ -362,10 +365,13 @@ export default function CreateGunPage({ onBack, onSuccess }) {
               />
               <label htmlFor="gun-image-input" className="upload-label">
                 <Upload size={36} className="upload-icon" />
-                <span className="upload-main-text">Click to choose an image file</span>
-                <span className="upload-sub-text">JPG, PNG, or WebP up to 5MB</span>
+                <span className="upload-main-text">
+                  Click to choose an image file
+                </span>
+                <span className="upload-sub-text">
+                  JPG, PNG, or WebP up to 5MB
+                </span>
               </label>
-
               <div className="preset-selector">
                 <span className="preset-title">Or use a stock preset:</span>
                 <div className="preset-pills">
@@ -396,7 +402,11 @@ export default function CreateGunPage({ onBack, onSuccess }) {
           ) : (
             <div className="preview-container">
               <div className="preview-image-wrap">
-                <img src={imagePreview} alt="Hardware preview" className="preview-img" />
+                <img
+                  src={imagePreview}
+                  alt="Hardware preview"
+                  className="preview-img"
+                />
                 <button
                   type="button"
                   className="preview-remove-btn"
@@ -410,7 +420,6 @@ export default function CreateGunPage({ onBack, onSuccess }) {
                   <X size={18} />
                 </button>
               </div>
-
               <div className="preview-actions">
                 <button
                   type="button"
@@ -420,7 +429,8 @@ export default function CreateGunPage({ onBack, onSuccess }) {
                 >
                   {uploading ? (
                     <>
-                      <Loader size={18} className="spin" /> Uploading to MinIO…
+                      <Loader size={18} className="spin" /> Uploading to
+                      Storage…
                     </>
                   ) : (
                     <>
@@ -449,7 +459,11 @@ export default function CreateGunPage({ onBack, onSuccess }) {
         <form onSubmit={handleSubmit} className="entry-form">
           {/* Active Image Thumbnail */}
           <div className="selected-thumb-bar">
-            <img src={uploadedImageUrl || imagePreview} alt="Selected" className="thumb-small" />
+            <img
+              src={uploadedImageUrl || imagePreview}
+              alt="Selected"
+              className="thumb-small"
+            />
             <div className="thumb-info">
               <span className="thumb-title">Imagery Assigned</span>
               <span className="thumb-sub">Ready for registration</span>
@@ -490,11 +504,11 @@ export default function CreateGunPage({ onBack, onSuccess }) {
                 name="type"
                 value={formData.type}
                 onChange={(e) => {
-                  handleFormChange(e)
-                  // Map category for backend schema
+                  const selectedType = e.target.value
                   setFormData((prev) => ({
                     ...prev,
-                    category: e.target.value === 'Pistol' ? 'makanan' : 'minuman',
+                    type: selectedType,
+                    category: selectedType === 'Pistol' ? 'makanan' : 'minuman',
                   }))
                 }}
                 className="form-select"
@@ -577,7 +591,9 @@ export default function CreateGunPage({ onBack, onSuccess }) {
           {/* Specifications (Ingredients) */}
           <div className="form-fieldset">
             <div className="fieldset-header">
-              <label className="form-label">Specifications &amp; Components</label>
+              <label className="form-label">
+                Specifications &amp; Components
+              </label>
               <button
                 type="button"
                 className="btn btn--outline btn--sm"
@@ -600,7 +616,9 @@ export default function CreateGunPage({ onBack, onSuccess }) {
                     type="text"
                     placeholder="Value (e.g. 16 inch, Striker-fired)"
                     value={spec.quantity}
-                    onChange={(e) => handleSpecChange(i, 'quantity', e.target.value)}
+                    onChange={(e) =>
+                      handleSpecChange(i, 'quantity', e.target.value)
+                    }
                     className="form-input"
                   />
                   <button
@@ -620,7 +638,9 @@ export default function CreateGunPage({ onBack, onSuccess }) {
           {/* Assembly / Maintenance Steps */}
           <div className="form-fieldset">
             <div className="fieldset-header">
-              <label className="form-label">Assembly &amp; Maintenance Protocol</label>
+              <label className="form-label">
+                Assembly &amp; Maintenance Protocol
+              </label>
               <button
                 type="button"
                 className="btn btn--outline btn--sm"
@@ -700,7 +720,9 @@ export default function CreateGunPage({ onBack, onSuccess }) {
       <ConfirmModal
         open={showDraftModal}
         title="Resume Previous Draft?"
-        message={`An unfinished draft from ${draftTimestamp ? formatDraftTime(draftTimestamp) : 'earlier'} was detected. Would you like to resume editing?`}
+        message={`An unfinished draft from ${
+          draftTimestamp ? formatDraftTime(draftTimestamp) : 'earlier'
+        } was detected. Would you like to resume editing?`}
         confirmLabel="Load Draft"
         cancelLabel="Discard"
         onConfirm={handleLoadDraft}

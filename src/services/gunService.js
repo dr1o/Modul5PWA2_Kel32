@@ -1,13 +1,9 @@
 import { apiClient, IS_SUPABASE } from '../config/api'
+import { invalidateCache, invalidateCacheByPrefix } from '../utils/queryCache'
 
-// ---------------------------------------------------------------------------
-// Normalizer — standardizes product shape whether received from Supabase
-// (public.products) or from the university API (/api/v1/recipes).
-// ---------------------------------------------------------------------------
 export const normalizeProduct = (item) => {
   if (!item) return null
 
-  // Resolve specifications from Supabase `specs` (text array) or API `ingredients`
   let specsList = []
   if (Array.isArray(item.specs)) {
     specsList = item.specs.map((s, idx) => {
@@ -32,11 +28,13 @@ export const normalizeProduct = (item) => {
     specsList = item.ingredients
   }
 
-  // Resolve steps
   const stepsList =
     Array.isArray(item.steps) && item.steps.length > 0
       ? item.steps
-      : ['Verify firearm is completely unloaded and point in safe direction.', 'Inspect receiver and mechanism for maintenance.']
+      : [
+          'Verify firearm is completely unloaded and point in safe direction.',
+          'Inspect receiver and mechanism for maintenance.',
+        ]
 
   return {
     ...item,
@@ -54,63 +52,65 @@ export const normalizeProduct = (item) => {
   }
 }
 
-// ---------------------------------------------------------------------------
-// GunService — wraps backend CRUD endpoints.
-// Supports both Supabase PostgREST table (/rest/v1/products) and
-// standard REST API (/api/v1/recipes).
-// ---------------------------------------------------------------------------
 class GunService {
-  /**
-   * Fetch a paginated, filterable list of products.
-   */
   async getGuns(params = {}) {
     if (IS_SUPABASE) {
-      const queryParts = ['select=*']
+      const page = Math.max(1, Number(params.page) || 1)
+      const limit = Math.max(1, Number(params.limit) || 6)
+      const offset = (page - 1) * limit
 
+      const queryParts = ['select=*']
       if (params.search) {
         queryParts.push(`name=ilike.*${encodeURIComponent(params.search)}*`)
       }
-
       if (params.category && params.category !== 'All') {
         queryParts.push(`type=eq.${encodeURIComponent(params.category)}`)
       }
-
       if (params.sort_by) {
         const order = params.order === 'desc' ? 'desc' : 'asc'
         queryParts.push(`order=${encodeURIComponent(params.sort_by)}.${order}`)
       } else {
         queryParts.push('order=created_at.desc')
       }
-
-      if (params.limit) {
-        queryParts.push(`limit=${params.limit}`)
-      }
+      queryParts.push(`limit=${limit}`)
+      queryParts.push(`offset=${offset}`)
 
       const queryString = queryParts.join('&')
-      const data = await apiClient.get(`/rest/v1/products?${queryString}`)
-      const list = Array.isArray(data) ? data.map(normalizeProduct) : []
+      const res = await apiClient.get(`/rest/v1/products?${queryString}`, {
+        rawResponse: true,
+        headers: { Prefer: 'count=exact' },
+      })
+
+      const rows = Array.isArray(res.data) ? res.data : []
+      const list = rows.map(normalizeProduct)
+
+      let total = list.length
+      const contentRange = res.headers?.['content-range']
+      if (contentRange && contentRange.includes('/')) {
+        const totalStr = contentRange.split('/')[1]
+        if (totalStr && totalStr !== '*') {
+          total = Number(totalStr) || 0
+        }
+      }
 
       return {
         success: true,
         data: list,
         pagination: {
-          total: list.length,
-          page: params.page || 1,
-          limit: params.limit || 50,
+          total,
+          page,
+          limit,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
         },
       }
     }
 
-    // Fallback: university REST API
     const clean = Object.fromEntries(
       Object.entries(params).filter(([, v]) => v !== '' && v != null),
     )
     return apiClient.get('/api/v1/recipes', { params: clean })
   }
 
-  /**
-   * Fetch a single product by ID.
-   */
   async getGunById(id) {
     if (IS_SUPABASE) {
       const data = await apiClient.get(`/rest/v1/products?id=eq.${id}&select=*`)
@@ -122,9 +122,6 @@ class GunService {
     return apiClient.get(`/api/v1/recipes/${id}`)
   }
 
-  /**
-   * Create a new product.
-   */
   async createGun(data) {
     if (IS_SUPABASE) {
       const specsArray = Array.isArray(data.ingredients)
@@ -132,7 +129,6 @@ class GunService {
         : Array.isArray(data.specs)
         ? data.specs
         : []
-
       const payload = {
         name: data.name,
         type: data.type || (data.category === 'minuman' ? 'Rifle' : 'Pistol'),
@@ -140,21 +136,21 @@ class GunService {
         price: Number(data.price ?? data.cook_time ?? 0),
         description: data.description || '',
         specs: specsArray,
+        steps: Array.isArray(data.steps) ? data.steps : [],
         image_url: data.image_url || null,
       }
-
       const res = await apiClient.post('/rest/v1/products', payload, {
         headers: { Prefer: 'return=representation' },
       })
+      invalidateCacheByPrefix('guns:')
       const created = Array.isArray(res) ? res[0] : res
       return { success: true, data: normalizeProduct(created) }
     }
-    return apiClient.post('/api/v1/recipes', data)
+    const res = await apiClient.post('/api/v1/recipes', data)
+    invalidateCacheByPrefix('guns:')
+    return res
   }
 
-  /**
-   * Update existing product.
-   */
   async updateGun(id, data) {
     if (IS_SUPABASE) {
       const specsArray = Array.isArray(data.ingredients)
@@ -162,7 +158,6 @@ class GunService {
         : Array.isArray(data.specs)
         ? data.specs
         : undefined
-
       const payload = {
         updated_at: new Date().toISOString(),
       }
@@ -174,36 +169,44 @@ class GunService {
       }
       if (data.description !== undefined) payload.description = data.description
       if (specsArray !== undefined) payload.specs = specsArray
+      if (Array.isArray(data.steps)) payload.steps = data.steps
       if (data.image_url !== undefined) payload.image_url = data.image_url
 
       const res = await apiClient.patch(`/rest/v1/products?id=eq.${id}`, payload, {
         headers: { Prefer: 'return=representation' },
       })
+      invalidateCacheByPrefix('guns:')
+      invalidateCache(`gun:${id}`)
       const updated = Array.isArray(res) ? res[0] : res
       return { success: true, data: normalizeProduct(updated) }
     }
-    return apiClient.put(`/api/v1/recipes/${id}`, data)
+    const res = await apiClient.put(`/api/v1/recipes/${id}`, data)
+    invalidateCacheByPrefix('guns:')
+    invalidateCache(`gun:${id}`)
+    return res
   }
 
-  /**
-   * Partial update (PATCH).
-   */
   async patchGun(id, data) {
     if (IS_SUPABASE) {
       return this.updateGun(id, data)
     }
-    return apiClient.patch(`/api/v1/recipes/${id}`, data)
+    const res = await apiClient.patch(`/api/v1/recipes/${id}`, data)
+    invalidateCacheByPrefix('guns:')
+    invalidateCache(`gun:${id}`)
+    return res
   }
 
-  /**
-   * Delete product.
-   */
   async deleteGun(id) {
     if (IS_SUPABASE) {
       await apiClient.delete(`/rest/v1/products?id=eq.${id}`)
+      invalidateCacheByPrefix('guns:')
+      invalidateCache(`gun:${id}`)
       return { success: true }
     }
-    return apiClient.delete(`/api/v1/recipes/${id}`)
+    const res = await apiClient.delete(`/api/v1/recipes/${id}`)
+    invalidateCacheByPrefix('guns:')
+    invalidateCache(`gun:${id}`)
+    return res
   }
 }
 
